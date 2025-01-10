@@ -5,9 +5,18 @@ import logging
 import torch
 import numpy as np
 
+import transformers
+from packaging import version
+
+if version.parse(transformers.__version__) > version.parse("4.47.1"):
+    from .longrope_new import LongRoPEScaledRotaryEmbedding, MixedLongRoPEScaledRotaryEmbedding, DynamicLongRoPEScaledRotaryEmbedding
+    new_ver = True
+else:
+    from .longrope import LongRoPEScaledRotaryEmbedding, MixedLongRoPEScaledRotaryEmbedding, DynamicLongRoPEScaledRotaryEmbedding
+    new_ver = False
+
 from transformers import AutoConfig, AutoModelForCausalLM
 
-from .longrope import LongRoPEScaledRotaryEmbedding, MixedLongRoPEScaledRotaryEmbedding, DynamicLongRoPEScaledRotaryEmbedding
 from .yarn import YaRNScaledRotaryEmbedding
 from utils.save_memory import replace_methods
 
@@ -31,25 +40,32 @@ def replace_rope(
     Returns:
         AutoModelForCausalLM: The modified model with the new RoPE in each layer.
     """
-    for idx, layer in enumerate(model.model.layers):
-        layer_rope_args = {}
-        for k, v in rope_args.items():
-            if type(v) is np.ndarray and v.ndim == 2:
-                layer_rope_args[k] = v[idx]
-            else:
-                layer_rope_args[k] = v
-        if 'dim' not in layer_rope_args:
-            layer_rope_args['dim'] = layer.self_attn.head_dim
-        device = "auto"
-        if hasattr(layer.self_attn, "o_proj"):
-            device = layer.self_attn.o_proj.weight.device
-        elif hasattr(layer.self_attn, "dense"):
-            device = layer.self_attn.dense.weight.device
-        layer_rope_args['device'] = device
-        layer.self_attn.rotary_emb = rope_class(**layer_rope_args)
+    # Add support to newer versions of transformers > v4.46
+    # https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L501
+    if model.model.rotary_emb is not None:
+        model.model.rotary_emb_layerwise = True
+        rope_args['device'] = model.device
+        model.model.rotary_emb = rope_class(**rope_args)
+    else: 
+        for idx, layer in enumerate(model.model.layers):
+            layer_rope_args = {}
+            for k, v in rope_args.items():
+                if type(v) is np.ndarray and v.ndim == 2:
+                    layer_rope_args[k] = v[idx]
+                else:
+                    layer_rope_args[k] = v
+            if 'dim' not in layer_rope_args:
+                layer_rope_args['dim'] = layer.self_attn.head_dim
+            device = "auto"
+            if hasattr(layer.self_attn, "o_proj"):
+                device = layer.self_attn.o_proj.weight.device
+            elif hasattr(layer.self_attn, "dense"):
+                device = layer.self_attn.dense.weight.device
+            layer_rope_args['device'] = device
+            layer.self_attn.rotary_emb = rope_class(**layer_rope_args)
     return model
 
-
+# change max_position_embeddings to the context length to extend to 
 def load_model(
     model_name_or_path: str,
     rope_method: str,
@@ -129,7 +145,7 @@ def load_model(
         if config.model_type == 'mistral' or config.model_type == 'mixtral':
             rope_model_type = 'mistral'
         else:
-            if not (config.model_type == 'llama' or config.model_type == 'phi3'):
+            if not (config.model_type == 'llama' or config.model_type == 'phi3' or config.model_type == 'bamba'):
                 logger.warning(f'Setting model type to llama for unrecognized model type: {config.model_type}')
             rope_model_type = 'llama'
         rope_class = None
@@ -139,6 +155,7 @@ def load_model(
             'scale': scaling_factor,
             'base': getattr(config, 'rope_embedding_base', getattr(config, 'rope_theta', None)),
             'model_type': rope_model_type,
+            'dim': head_size
         }
         if rope_method == 'yarn':
             rope_class = YaRNScaledRotaryEmbedding
@@ -155,11 +172,22 @@ def load_model(
             elif rope_method == 'longrope_mixed':
                 rope_class = MixedLongRoPEScaledRotaryEmbedding
                 # TODO: use hook to get the original embeddings
-                original_rope = model.model.layers[0].self_attn.rotary_emb
-                tmp_input = torch.zeros(size=(max_position_embeddings, ))
-                original_embeddings = original_rope(tmp_input)
+
+                # Add handler for Bamba's config, return if there is no attention layer
+                if config.model_type == 'bamba':
+                    if config.attn_layer_indices is None or len(config.attn_layer_indices) == 0:
+                        return model
+                    else:
+                        rope_args['layer_idx_list'] = config.attn_layer_indices
+                else:
+                    rope_args['layer_idx_list'] = list(range(layer_num))
+
+                if new_ver:
+                    rope_args['original_rope'] = model.model.rotary_emb
+                else:
+                    rope_args['original_rope'] = model.model.layers[rope_args['layer_idx_list'][0]].self_attn.rotary_emb
+
                 rope_args['start_token_idx'] = rope_params['start_token_idx']
-                rope_args['original_embeddings'] = original_embeddings
             elif rope_method == 'longrope_dynamic':
                 rope_class = DynamicLongRoPEScaledRotaryEmbedding
         if rope_class is None:
