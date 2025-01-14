@@ -89,6 +89,9 @@ class LongRoPEScaledRotaryEmbedding(torch.nn.Module):
 
     @torch.no_grad()
     def _forward_llama(self, x, position_ids, layer_idx, seq_len=None):
+        if layer_idx not in self.rescale_factors.keys():
+            # Placeholder for non-attention layers
+            return None, None
         seq_len = x.shape[-2] if seq_len is None else seq_len
         inv_freq = self._calc_inv_freq(seq_len, x.device, layer_idx)
         inv_freq_expanded = inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)

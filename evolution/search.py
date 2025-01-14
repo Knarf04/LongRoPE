@@ -127,7 +127,7 @@ def main(args):
     if config.model_type == 'mistral' or config.model_type == 'mixtral':
         rope_model_type = 'mistral'
     else:
-        if not (config.model_type == 'llama' or config.model_type == 'phi3'):
+        if not (config.model_type == 'llama' or config.model_type == 'phi3' or config.model_type == 'bamba'):
             logger.warning(f'Setting model type to llama for unrecognized model type: {config.model_type}')
         rope_model_type = 'llama'
 
@@ -179,6 +179,17 @@ def main(args):
     assert init_factors.shape == (half_head_size, ), \
         f'Initial factors shape error: {init_factors.shape} != {(half_head_size, )}'
     logger.info(f'Initial factors: {init_factors}')
+
+    # Add handler for Bamba's config, return if there is no attention layer
+    if config.model_type == 'bamba':
+        if config.attn_layer_indices is None or len(config.attn_layer_indices) == 0:
+            rope_args['layer_idx_list'] = []
+        else:
+            rope_args['layer_idx_list'] = config.attn_layer_indices
+    else:
+        rope_args['layer_idx_list'] = list(range(config.num_hidden_layers))
+
+    logger.info(rope_args['layer_idx_list'])
 
     if args.algorithm == "dim_piece_mono":
         final_factors = DimPieceMonoGeneticAlgorithm(

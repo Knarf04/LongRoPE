@@ -15,13 +15,14 @@ def main(args):
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
 
+    # Use streaming dataset instead to speed up loading
     input_texts = datasets.load_dataset(
         args.dataset,
         name=args.subset,
         split=args.split,
-        num_proc=args.num_proc,
-        ignore_verifications=True,
+        #num_proc=args.num_proc,
         trust_remote_code=True,
+        streaming=True
     )
 
     def tokenize(example):
@@ -38,8 +39,14 @@ def main(args):
         example["tokenized_len"] = len(tokenized["input_ids"])
         return example
 
-    input_texts = input_texts.map(tokenize, num_proc=args.num_proc)
-    input_texts.save_to_disk(args.save_tokenized, num_proc=args.num_proc)
+    processed_samples = []
+    for example in input_texts:
+        tokenized_example = tokenize(example)
+        processed_samples.append(tokenized_example)
+
+    dataset = datasets.Dataset.from_list(processed_samples)
+
+    dataset.save_to_disk(args.save_tokenized)
     logger.info(f"Saved tokenized dataset to {args.save_tokenized}")
 
 
@@ -51,6 +58,6 @@ if __name__ == "__main__":
     parser.add_argument("--subset", type=str)
     parser.add_argument("--feature", type=str)
     parser.add_argument("--save-tokenized", type=str)
-    parser.add_argument("--num-proc", type=int, default=4)
+    parser.add_argument("--num-proc", type=int, default=8)
 
     main(parser.parse_args())

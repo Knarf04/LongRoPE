@@ -5,14 +5,14 @@
 export CUDA_VISIBLE_DEVICES=0
 
 export TARGET_LENGTH=$((8 * 4096))
-MODEL_PATH=meta-llama/Meta-Llama-3-8B
+MODEL_PATH=ibm-fms/Bamba-9B
 DATASETS_PATH=$HF_HOME/datasets
 
 export ROPE_METHOD=longrope
-export LONGROPE_RESCALE_FACTOR=$HF_HOME/results/search/llama3-8b/$TARGET_LENGTH/result_final.csv
+export LONGROPE_RESCALE_FACTOR=$HF_HOME/results/search/bamba-9b/$TARGET_LENGTH/result_final.csv
 export LONGROPE_SCALING_POLICY=su
 
-export OUTPUT_DIR=$HF_HOME/results/eval/llama3-8b/$TARGET_LENGTH
+export OUTPUT_DIR=$HF_HOME/results/eval/bamba-9b/$TARGET_LENGTH
 mkdir -p $OUTPUT_DIR
 
 SCRIPT_PATH=$(realpath "$0")
@@ -31,7 +31,7 @@ SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
 
 python $SCRIPT_DIR/../../evaluation/perplexity.py \
     --model $MODEL_PATH \
-    --tokenized $DATASETS_PATH/proof-pile-test-llama-tokenized \
+    --tokenized $DATASETS_PATH/proof-pile-test-bamba-tokenized \
     --num-tokens $TARGET_LENGTH \
     --dataset-min-tokens 131072 \
     --samples 10 \

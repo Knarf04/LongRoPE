@@ -167,21 +167,21 @@ def load_model(
                 raise ValueError(f'misaligned shape for LongRoPE rescale factors: {rescale_factors.shape}')
             rope_args['rescale_factors'] = rescale_factors
             rope_args['magnitude_scaling_policy'] = rope_params['longrope_scaling_policy']
+
+            # Add handler for Bamba's config, return if there is no attention layer
+            if config.model_type == 'bamba':
+                if config.attn_layer_indices is None or len(config.attn_layer_indices) == 0:
+                    rope_args['layer_idx_list'] = []
+                else:
+                    rope_args['layer_idx_list'] = config.attn_layer_indices
+            else:
+                rope_args['layer_idx_list'] = list(range(layer_num))
+
             if rope_method == 'longrope':
                 rope_class = LongRoPEScaledRotaryEmbedding
             elif rope_method == 'longrope_mixed':
                 rope_class = MixedLongRoPEScaledRotaryEmbedding
                 # TODO: use hook to get the original embeddings
-
-                # Add handler for Bamba's config, return if there is no attention layer
-                if config.model_type == 'bamba':
-                    if config.attn_layer_indices is None or len(config.attn_layer_indices) == 0:
-                        return model
-                    else:
-                        rope_args['layer_idx_list'] = config.attn_layer_indices
-                else:
-                    rope_args['layer_idx_list'] = list(range(layer_num))
-
                 if new_ver:
                     rope_args['original_rope'] = model.model.rotary_emb
                 else:
