@@ -189,8 +189,6 @@ def main(args):
     else:
         rope_args['layer_idx_list'] = list(range(config.num_hidden_layers))
 
-    logger.info(rope_args['layer_idx_list'])
-
     if args.algorithm == "dim_piece_mono":
         final_factors = DimPieceMonoGeneticAlgorithm(
             evaluators=evaluators,
